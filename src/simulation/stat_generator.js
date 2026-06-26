@@ -1,12 +1,15 @@
 /**
- * Stat Generator v2.1
+ * Stat Generator v2.2
  * Converts player attributes into realistic season statistics
  * Foundation: Usage Rate × Efficiency × Role
+ * 
+ * KEY FIX: Responsibility values now represent % of possessions going to each category
+ * scorer + playmaker + rebounder + defender ≈ 1.0
  */
 
 class StatGenerator {
   constructor() {
-    // Position stat multipliers
+    // Position stat multipliers (scaling factors for derived stats)
     this.positionMultipliers = {
       PG: { APG: 1.4, RPG: 0.7, PPG: 1.0, SPG: 1.1 },
       SG: { PPG: 1.2, APG: 0.8, RPG: 0.8, SPG: 1.0 },
@@ -15,54 +18,55 @@ class StatGenerator {
       C: { RPG: 1.4, BPG: 1.5, PPG: 0.85, APG: 0.7 }
     };
 
-    // Role archetypes: define scoring vs playmaking vs rebounding tendency
+    // Role archetypes: possession allocation (% of team possessions this player uses for each role)
+    // scorer + playmaker + rebounder + defender = 1.0 (or close to it)
     this.archetypes = {
       "The King": { 
-        // LeBron coded - balanced all-around
-        scorer: 0.65, 
-        playmaker: 0.75, 
-        defender: 0.75, 
-        rebounder: 0.55,
+        // LeBron - balanced all-around (uses most possessions, spreads across roles)
+        scorer: 0.40,           // 40% of possessions → scoring
+        playmaker: 0.30,        // 30% → playmaking
+        rebounder: 0.15,        // 15% → rebounding
+        defender: 0.15,         // 15% → defense
         usageModifier: 1.0
       },
       "The Joker": { 
-        // Jokic - system engine, high efficiency, playmaking
-        scorer: 0.50, 
-        playmaker: 0.95, 
-        defender: 0.55, 
-        rebounder: 0.85,
+        // Jokic - system engine (low scoring %, high playmaking %, rebounds a lot)
+        scorer: 0.25,           // Only 25% scoring (system doesn't rely on him to score)
+        playmaker: 0.45,        // 45% playmaking (engine of offense)
+        rebounder: 0.20,        // 20% rebounding
+        defender: 0.10,         // 10% defense
         usageModifier: 0.85
       },
       "The Point God": { 
-        // Stockton - assist-first PG
-        scorer: 0.40, 
-        playmaker: 0.95, 
-        defender: 0.75, 
-        rebounder: 0.20,
+        // Stockton - pass-first (minimal scoring, maximum assists)
+        scorer: 0.20,           // 20% scoring
+        playmaker: 0.55,        // 55% playmaking (pure PG)
+        rebounder: 0.10,        // 10% rebounding
+        defender: 0.15,         // 15% defense
         usageModifier: 0.90
       },
       "The Slim Reaper": { 
-        // KD - elite scorer, length
-        scorer: 0.92, 
-        playmaker: 0.25, 
-        defender: 0.68, 
-        rebounder: 0.40,
+        // KD - elite pure scorer (high scoring %, low playmaking)
+        scorer: 0.65,           // 65% scoring (volume scorer)
+        playmaker: 0.10,        // 10% playmaking (not a facilitator)
+        rebounder: 0.10,        // 10% rebounding
+        defender: 0.15,         // 15% defense
         usageModifier: 1.05
       },
       "The SGA": {
-        // Shai - efficient scorer, moderate playmaking
-        scorer: 0.85,
-        playmaker: 0.50,
-        defender: 0.70,
-        rebounder: 0.35,
+        // Shai - efficient scorer with moderate playmaking
+        scorer: 0.50,           // 50% scoring (primary role)
+        playmaker: 0.20,        // 20% playmaking (secondary role)
+        rebounder: 0.10,        // 10% rebounding
+        defender: 0.20,         // 20% defense (strong defender)
         usageModifier: 1.0
       },
       "The Luka": {
-        // Luka - high usage, heliocentric scorer + playmaker
-        scorer: 0.80,
-        playmaker: 0.75,
-        defender: 0.50,
-        rebounder: 0.45,
+        // Luka - heliocentric scorer + elite playmaker (high usage, splits scorer/playmaker)
+        scorer: 0.45,           // 45% scoring
+        playmaker: 0.35,        // 35% playmaking (elite passer for a guard)
+        rebounder: 0.10,        // 10% rebounding (guard role)
+        defender: 0.10,         // 10% defense
         usageModifier: 1.15
       }
     };
@@ -81,7 +85,6 @@ class StatGenerator {
     const adjustedOverall = Math.floor(player.overall * ageMultiplier);
 
     // Determine usage rate if not provided
-    // IMPORTANT: Pass original overall, not adjusted
     if (!usageRate) {
       usageRate = this.calculateUsageRate(player.overall, player.archetype_name);
     }
@@ -130,19 +133,13 @@ class StatGenerator {
       three_percent: percentages.three,
       ft_percent: percentages.ft,
       adjusted_overall: adjustedOverall,
-      usage_rate: Math.round(usageRate * 1000) / 10 // Return as percentage
+      usage_rate: Math.round(usageRate * 1000) / 10
     };
   }
 
   /**
    * Calculate usage rate based on overall and archetype (LINEAR)
    * Realistic range: 20% - 38%
-   * 
-   * Formula: baseUsage = 0.15 + (overall - 70) / 30 * 0.23
-   * - 70 OVR = 15% USG
-   * - 90 OVR = 29% USG
-   * - 97 OVR = 36% USG
-   * - 98 OVR = 37% USG (before archetype)
    */
   calculateUsageRate(overall, archetypeName) {
     const archetype = this.archetypes[archetypeName] || this.archetypes["The King"];
@@ -159,33 +156,31 @@ class StatGenerator {
 
   /**
    * Calculate efficiency multiplier (affects PPG output)
-   * Higher efficiency = more PPG from same possessions
    */
   calculateEfficiency(player, overall, archetype) {
     // Base efficiency from shooting attributes
     const shootingAvg = (player.shooting_3pt + player.shooting_mid + player.finishing) / 3;
-    const shootingEfficiency = 0.45 + (shootingAvg / 100) * 0.15; // Range: 45% - 60%
+    const shootingEfficiency = 0.45 + (shootingAvg / 100) * 0.15;
 
-    // Archetype modifier
-    const archetypeEffBonus = archetype.scorer * 0.10; // Scorers get slight boost
+    // Archetype modifier (scorers get efficiency bonus)
+    const archetypeEffBonus = archetype.scorer * 0.15;
 
     // Overall contributes to efficiency
-    const overallEffBonus = (overall - 75) / 100 * 0.08; // 75 OVR = baseline, 99 OVR = +19%
+    const overallEffBonus = (overall - 75) / 100 * 0.08;
 
     return shootingEfficiency + archetypeEffBonus + overallEffBonus;
   }
 
   /**
    * Get age multiplier for progression/decline
-   * Peak ages 26-34, drafted at 18
    */
   getAgeMultiplier(age) {
     if (age < 18) return 0.5;
-    if (age < 21) return 0.7 + (age - 18) * 0.1; // Years 18-20: ramp up
-    if (age < 26) return 1.0 + (age - 21) * 0.02; // Years 21-25: slight improvement
-    if (age <= 34) return 1.1; // Years 26-34: peak
-    if (age < 38) return 1.1 - (age - 34) * 0.05; // Years 35-37: gradual decline
-    return Math.max(0.7, 1.1 - (age - 34) * 0.05); // Age 38+: steeper decline
+    if (age < 21) return 0.7 + (age - 18) * 0.1;
+    if (age < 26) return 1.0 + (age - 21) * 0.02;
+    if (age <= 34) return 1.1;
+    if (age < 38) return 1.1 - (age - 34) * 0.05;
+    return Math.max(0.7, 1.1 - (age - 34) * 0.05);
   }
 
   /**
@@ -216,42 +211,39 @@ class StatGenerator {
 
   /**
    * Distribute possessions across PPG, APG, RPG, SPG, BPG
-   * Key: Archetype tendency determines split
+   * 
+   * Archetype values are % of possessions:
+   * - scorer% × possessions × efficiency → PPG
+   * - playmaker% × possessions → APG
+   * - rebounder% × possessions → RPG
+   * - defender% × possessions → SPG + BPG
    */
   distributeStats(possessions, gamesPlayed, player, archetype, posMultipliers, efficiency) {
-    // Responsibility distribution
-    const scoringResponsibility = archetype.scorer;
-    const playmakingResponsibility = archetype.playmaker;
-    const reboundingResponsibility = archetype.rebounder;
-    const defendingResponsibility = archetype.defender;
+    // Possession allocation (already normalized to ~1.0)
+    const scoringPossessions = possessions * archetype.scorer;
+    const playmakingPossessions = possessions * archetype.playmaker;
+    const reboundingPossessions = possessions * archetype.rebounder;
+    const defensePossessions = possessions * archetype.defender;
 
-    // Scoring: possessions × scoring tendency × efficiency × position multiplier
-    let ppg = (possessions * scoringResponsibility * efficiency * posMultipliers.PPG) / gamesPlayed;
-
-    // Playmaking: possessions × playmaking tendency × position multiplier
-    let apg = (possessions * playmakingResponsibility * posMultipliers.APG) / gamesPlayed;
-
-    // Rebounding: based on rebounding tendency + position
-    let rpg = (possessions * reboundingResponsibility * posMultipliers.RPG) / gamesPlayed;
-
-    // Defense: steals + blocks
-    const defenseVolume = possessions * defendingResponsibility;
-    let spg = (defenseVolume * 0.35) / gamesPlayed; // 35% to steals
-    let bpg = (defenseVolume * 0.65) / gamesPlayed; // 65% to blocks
+    // Calculate base stats before position adjustments
+    let ppg = (scoringPossessions * efficiency * posMultipliers.PPG) / gamesPlayed;
+    let apg = (playmakingPossessions * posMultipliers.APG) / gamesPlayed;
+    let rpg = (reboundingPossessions * posMultipliers.RPG) / gamesPlayed;
+    
+    // Defense split: 35% steals, 65% blocks
+    let spg = (defensePossessions * 0.35) / gamesPlayed;
+    let bpg = (defensePossessions * 0.65) / gamesPlayed;
 
     // Position-specific constraints
     if (player.position === "C") {
-      // Centers rebound more
       rpg = Math.max(rpg, ppg * 0.45);
       bpg = Math.max(bpg, ppg * 0.10);
       apg = Math.min(apg, ppg * 0.20);
     } else if (player.position === "PG") {
-      // Point guards pass more
       apg = Math.max(apg, ppg * 0.25);
       rpg = Math.min(rpg, ppg * 0.30);
-      spg = Math.max(spg, 1.5); // Defensive ball handlers
+      spg = Math.max(spg, 1.5);
     } else if (player.position === "SF") {
-      // Versatile
       rpg = Math.max(rpg, ppg * 0.35);
     }
 
@@ -268,14 +260,9 @@ class StatGenerator {
    * Calculate shooting percentages
    */
   calculatePercentages(player, archetype, efficiency) {
-    // FG% derived from efficiency calculation
     const fgPercent = Math.round(efficiency * 1000) / 10;
-
-    // 3P% from 3pt shooting attribute
-    const threePercent = 25 + (player.shooting_3pt / 100) * 35; // Range: 25% - 60%
-
-    // FT% (high for all players, varies with finishing attribute)
-    const ftPercent = 65 + (player.finishing / 100) * 25; // Range: 65% - 90%
+    const threePercent = 25 + (player.shooting_3pt / 100) * 35;
+    const ftPercent = 65 + (player.finishing / 100) * 25;
 
     return {
       fg: fgPercent,

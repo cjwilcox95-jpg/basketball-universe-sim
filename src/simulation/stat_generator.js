@@ -1,5 +1,5 @@
 /**
- * Stat Generator v2
+ * Stat Generator v2.1
  * Converts player attributes into realistic season statistics
  * Foundation: Usage Rate × Efficiency × Role
  */
@@ -31,7 +31,7 @@ class StatGenerator {
         playmaker: 0.95, 
         defender: 0.55, 
         rebounder: 0.85,
-        usageModifier: 0.95
+        usageModifier: 0.85
       },
       "The Point God": { 
         // Stockton - assist-first PG
@@ -81,8 +81,9 @@ class StatGenerator {
     const adjustedOverall = Math.floor(player.overall * ageMultiplier);
 
     // Determine usage rate if not provided
+    // IMPORTANT: Pass original overall, not adjusted
     if (!usageRate) {
-      usageRate = this.calculateUsageRate(adjustedOverall, player.archetype_name);
+      usageRate = this.calculateUsageRate(player.overall, player.archetype_name);
     }
 
     // Get archetype data
@@ -134,14 +135,20 @@ class StatGenerator {
   }
 
   /**
-   * Calculate usage rate based on overall and archetype
-   * Realistic range: 25% - 38%
+   * Calculate usage rate based on overall and archetype (LINEAR)
+   * Realistic range: 20% - 38%
+   * 
+   * Formula: baseUsage = 0.15 + (overall - 70) / 30 * 0.23
+   * - 70 OVR = 15% USG
+   * - 90 OVR = 29% USG
+   * - 97 OVR = 36% USG
+   * - 98 OVR = 37% USG (before archetype)
    */
   calculateUsageRate(overall, archetypeName) {
     const archetype = this.archetypes[archetypeName] || this.archetypes["The King"];
     
-    // Base usage from overall rating
-    const baseUsage = 0.18 + (overall - 70) / 100 * 0.18; // 70 OVR = 18%, 90 OVR = 32%, 99 OVR = 36%
+    // Linear base usage from overall rating
+    const baseUsage = 0.15 + (overall - 70) / 30 * 0.23;
     
     // Modify by archetype usage tendency
     const modifiedUsage = baseUsage * archetype.usageModifier;
@@ -212,11 +219,11 @@ class StatGenerator {
    * Key: Archetype tendency determines split
    */
   distributeStats(possessions, gamesPlayed, player, archetype, posMultipliers, efficiency) {
-    // Responsibility distribution (must sum to ~1.0)
-    const scoringResponsibility = archetype.scorer; // 0.50 - 0.92
-    const playmakingResponsibility = archetype.playmaker; // 0.25 - 0.95
-    const reboundingResponsibility = archetype.rebounder; // 0.20 - 0.85
-    const defendingResponsibility = archetype.defender; // 0.45 - 0.75
+    // Responsibility distribution
+    const scoringResponsibility = archetype.scorer;
+    const playmakingResponsibility = archetype.playmaker;
+    const reboundingResponsibility = archetype.rebounder;
+    const defendingResponsibility = archetype.defender;
 
     // Scoring: possessions × scoring tendency × efficiency × position multiplier
     let ppg = (possessions * scoringResponsibility * efficiency * posMultipliers.PPG) / gamesPlayed;
